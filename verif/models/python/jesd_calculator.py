@@ -67,7 +67,7 @@ def add_xls_sheet_header(wb, ws, xls_row_idx, xls_col_idx, num_trx, num_ccs, M, 
     ws.write('A3', 'I/Q')
     ws.write('B3', 2)
     
-    ws.write('A4', 'Logical Converters (M)')
+    ws.write('A4', 'Physical Converters (M)')
     ws.write('B4', M)
     
     ws.write('A5', 'N Prime (bits)')
@@ -198,8 +198,8 @@ if __name__ == "__main__":
             # Add a sheet to the workbook
             ws = add_ws(wb, ccs, trx)
             
-            # Logical number of converters
-            M = trx * ccs * 2 # 2 is for IQ, Assuming ZIF architecture
+            # Definition of M as per the standard is the number of converters
+            M = trx 
             
             # Add Header information to the worksheet
             add_xls_sheet_header(wb, ws, xls_sheet_row-2, xls_sheet_col, trx, ccs, M, N_prime)
@@ -221,11 +221,16 @@ if __name__ == "__main__":
                 list_S = [fs/min_fs for fs in list_fs]
                 #print(list_S)
                 
+                # Logical number of converters (note that the logical
+                # number of converters is the sum total of all the over-sampling
+                # ratios. Think of each poly-phase as an independent I/Q)
+                Mp = trx * sum(list_S) * 2 # 2 is for IQ, Assuming ZIF architecture
+                
                 # Now iterate over every "Number of lanes" and figure
                 # out the lane rate. 
                 for lanes in L:
                     # Calculate Frame size in octets
-                    F = M * N_prime / 8 / lanes 
+                    F = Mp * N_prime / 8 / lanes 
                     # Calculate Lane rate
                     lane_rate = (F*8) * min_fs * (66/64) / 1000 # this is in Gbps 
                     
