@@ -53,13 +53,17 @@ def lseq_v2(inSamp, L, M, R):
                     8: 983.04 MHz
     """
     
-    print (" I am in V2 of LSEQ")
     # Number of phases based on Rate
     P = get_num_phases(R)
     
     # Define Lane Bit Counters 
     lane_bit_counters = np.zeros((L, 1), dtype=np.uint32)
     
+    # Define lane wise insert index which keeps track of
+    # where the next insert should happen
+    lane_byte_idx = np.full((L, 1), 8, dtype=np.uint32)
+    print(lane_byte_idx) 
+
     # create an empty list for each lane. Every row in each
     # lane will be a 64 bit word.
     lane = [[] for i in range(L)]
@@ -70,7 +74,7 @@ def lseq_v2(inSamp, L, M, R):
     # of the input parallel bus that will feed a particular lane. 
     # Only when the "samp" buffer for that lane has reached 64 bits
     # do we say that this is a valid cycle. 
-    samp = [[] for i in range(L)]
+    samp = [['x']*8 for i in range(L)]
 
     for r in inSamp:
         # First reshape the row such that the number of rows
@@ -84,15 +88,20 @@ def lseq_v2(inSamp, L, M, R):
             ## Now that the row is split into two, feed each
             ## sub-row into each lane. A valid sample is only
             ## when 64 bits have been accumulated
-            for b in reversed(range(x[l].size)):
-                if b == 'x': #Case where the sample is not valid
+            x_ind = x[l].size
+            for b in reversed(range(8)):
+                if x[l][0] == 'x': #Case where the sample is not valid, skip the whole processing
                     break
-
-                samp[l].insert(0, x[l][b])
-                lane_bit_counters[l] += 8
-                if lane_bit_counters[l] == 64:
-                    break
-            print("Lane: ", l, "Samp: ", samp[l])
+                if x_ind > 0 :
+                    #samp[l].insert(0, x[l][lane_byte_idx[l]-1])
+                    samp[l][lane_byte_idx[l][0]-1] = x[l][x_ind-1]
+                    x_ind = x_ind - 1
+                    lane_byte_idx[l] = lane_byte_idx[l] - 1
+                    lane_bit_counters[l] += 8
+                    if lane_bit_counters[l] == 64:
+                        break
+                else : 
+                    samp[l][b] = 'x'
             # The above for loop for bytes cycles through
             # bytes in the sample. If the lane bit counter
             # reaches 64 bits, it will break out, otherwise
@@ -100,26 +109,38 @@ def lseq_v2(inSamp, L, M, R):
             # check if we reached 64 bits. If we did then
             # this is a valid cycle, else just put in 'x'
             
+            #print('Lane: ', l, 'Samp: ', samp[l], 'Lane Counter: ', lane_bit_counters[l])
+            
+            # You have to append a copy otherwise its just a pointer in python.
+            lane[l].append(samp[l].copy())
+            
+            #print(lane[l])
+            
             if lane_bit_counters[l] == 64:
                
                 # Reset the counter
-                lane_bit_counters[l] = 0
-               
+                lane_bit_counters[l]    = 0
+                lane_byte_idx[l]        = int(8) 
                 # append the sample
-                lane[l].append(samp[l])
 
                 # reset the sample
-                samp[l] = []
+                samp[l] = ['x']*8
 
                 # buffer the remaining bytes of the
                 # current sample if any remaining
                 #if (b < (x[l].size - 1)):
-                if (b > 0):
-                    for bs in reversed(range(0, b)):
-                        samp[l].insert(0, x[l][bs])
+                if (x_ind > 0):
+                    for bs in reversed(range(0, x_ind)):
+                        samp[l][lane_byte_idx[l]-1] = x[l][x_ind-1]
+                        lane_byte_idx[l] = lane_byte_idx[l] - 1
                         lane_bit_counters[l] += 8
-            else: # Didnt collect enough, so this is not a valid cycle.
-                lane[l]. append(['x'] * 8)
+                    # For remaining bytes just put 'x'
+                    for bs in reversed(range(0, 8-x_ind)):
+                        samp[l].insert(0, 'x')
+
+
+            #else: # Didnt collect enough, so this is not a valid cycle.
+            #    lane[l]. append(['x'] * 8)
             
     # Now pretty print the lane outputs
     print(" ***************** MODULE LSEQ OUTPUT *****************")
@@ -321,8 +342,9 @@ def get_sample_pattern(nSamp, M, R, prec):
     nOctets         = int(prec/8)
     strb_ind        = get_strb_pattern(R)
     P               = get_num_phases(R)
-    in_data          = []
-
+    in_data         = []
+    si              = 0 # true Sample Index
+    
     # the nSamp parameter is for the number
     # of samples at a given rate. But since the 
     # clock rate is 491.52 MHz, we need to adjust
@@ -344,6 +366,7 @@ def get_sample_pattern(nSamp, M, R, prec):
         case 4 | 8:
             osSamp = nSamp
 
+    
     for n in range(osSamp):
         rem     = n % 4
         samp    = '' # byte sample for every converter
@@ -353,9 +376,10 @@ def get_sample_pattern(nSamp, M, R, prec):
             for m in reversed(range(M)):     
                 for p in reversed(range(P)):
                     for b in reversed(range(nOctets)):
-                        samp = 'M' + str(m) + '_P' + str(p) + '_' + 's' + str(n) + '_' + 'b' + str(b)
+                        samp = 'M' + str(m) + '_P' + str(p) + '_' + 's' + str(si) + '_' + 'b' + str(b)
                         literal.append(samp)
             in_data.append(literal)
+            si = si + 1
         else:
             in_data.append(['x'] * M * nOctets * P)
 
@@ -456,10 +480,8 @@ if __name__ == "__main__":
 
     # Variables
     
-    M = 4
-    
-    Np = 24 
-    
+    Np = 16 
+    M = 2
     L = 2
 
     '''
@@ -471,7 +493,7 @@ if __name__ == "__main__":
         6: 737.28 MHz
         8: 983.04 MHz
     '''
-    R = 4 
+    R = 6 
     
     '''
     Number of octets
