@@ -60,9 +60,11 @@ def lseq_v2(inSamp, L, M, R):
     lane_bit_counters = np.zeros((L, 1), dtype=np.uint32)
     
     # Define lane wise insert index which keeps track of
-    # where the next insert should happen
+    # where the next insert should happen. This is mainly
+    # used when you want have partial fills of the 64 bit
+    # word.
     lane_byte_idx = np.full((L, 1), 8, dtype=np.uint32)
-    print(lane_byte_idx) 
+    #print(lane_byte_idx) 
 
     # create an empty list for each lane. Every row in each
     # lane will be a 64 bit word.
@@ -80,12 +82,15 @@ def lseq_v2(inSamp, L, M, R):
         # First reshape the row such that the number of rows
         # is the number of lanes. This way we can think of each
         # row feeding a lane. Makes visualizing and processing
-        # easier.
+        # easier. To understand this, inSamp rows is the full bus which
+        # is made up of all the converters, the samples, the bytes and the phases.
+        # You want to break them up into L sections so that each section is now 
+        # feeding into its respective lane.
         
         list_len = int(len(r))
         x = np.reshape(r, (L, int(list_len/L)))
         for l in reversed(range(L)):
-            ## Now that the row is split into two, feed each
+            ## Now that the row is split into L subrows, feed each
             ## sub-row into each lane. A valid sample is only
             ## when 64 bits have been accumulated
             x_ind = x[l].size
@@ -94,7 +99,8 @@ def lseq_v2(inSamp, L, M, R):
                     break
                 if x_ind > 0 :
                     #samp[l].insert(0, x[l][lane_byte_idx[l]-1])
-                    samp[l][lane_byte_idx[l][0]-1] = x[l][x_ind-1]
+                    samp[l][lane_byte_idx[l][0]-1] = x[l][x_ind-1]  # 0 idx because lanebyteidx is a list
+                                                                    # of lists where is each sub-list of length 1.
                     x_ind = x_ind - 1
                     lane_byte_idx[l] = lane_byte_idx[l] - 1
                     lane_bit_counters[l] += 8
@@ -154,7 +160,7 @@ def lseq_v2(inSamp, L, M, R):
     print("Clock Rate: 491.52 MHz")
     for l in range(L):
         print("============ LANE ", l, " OUTPUT =============")
-        print_table(l, R, M, Np, lane[l], 'lseq')
+        print_table(l, R, M, Np, lane[l], 'lseq', "LSEQ OUTPUT")
 
 
 # @@@@@@@@@@@@@@@ END OF LSEQ_V2 Function
@@ -296,7 +302,7 @@ def s2w(nSamp, R, M, prec):
 
     # Print the input waveform in a beautiful way.
     # Dont need lanes for this block so set to 0.
-    print_table(0, R, M, prec, in_data, 's2w')
+    print_table(0, R, M, prec, in_data, 's2w', "=== Raw Samples to Converter Samples =====")
 
     return in_data
 
@@ -338,6 +344,11 @@ def get_strb_pattern(R):
 
 
 def get_sample_pattern(nSamp, M, R, prec):
+    """
+    This function provides rows of samples according to M, R and prec.
+    The nSamp variable is expanded to oSamp based on rates (because we can
+    have invalid cycles where the samples are invalid). 
+    """
 
     nOctets         = int(prec/8)
     strb_ind        = get_strb_pattern(R)
@@ -389,6 +400,16 @@ def get_sample_pattern(nSamp, M, R, prec):
 
 
 def get_num_phases(R):
+    '''
+    Depending on the rate we will need either 1 or 2 phases.
+    R: Rate
+          1: 122.88 MHz
+          2: 245.76 MHz
+          3. 368.64 MHz
+          4: 491.52 MHz
+          6: 737.28 MHz
+          8: 983.04 MHz
+    '''
 
     if R in [1, 2, 3, 4]:
         P = 1
@@ -424,7 +445,7 @@ def get_sample_rate(R):
             Fs = 983.04
     return Fs
 
-def print_table(Lid, R, M, prec, in_data, block):
+def print_table(Lid, R, M, prec, in_data, block, mesg=''):
     """
     This function prints out a table with samples and byte positions.
     The printing is such that the lowest converter index is at the lower
@@ -435,6 +456,8 @@ def print_table(Lid, R, M, prec, in_data, block):
     M : Number of converters
     prec: Precising in bits
     in_data: rows to be printed
+    block: The function handles tables for various blocks in the design.
+    mesg: Any message you would like to print before the table gets printed
     """
     nOctets = int(prec/8)
     inTab = PrettyTable()
@@ -453,6 +476,7 @@ def print_table(Lid, R, M, prec, in_data, block):
                     
 
         #Print the table
+        print(mesg)
         print("============= Parameters")
         print("Number of Converters: ", M)
         print("Number of phases: ", P)
