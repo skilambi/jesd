@@ -63,7 +63,7 @@ def lseq_v2(inSamp, L, M, R):
     # where the next insert should happen. This is mainly
     # used when you want have partial fills of the 64 bit
     # word.
-    lane_byte_idx = np.full((L, 1), 8, dtype=np.uint32)
+    lane_nib_idx = np.full((L, 1), 16, dtype=np.uint32)
     #print(lane_byte_idx) 
 
     # create an empty list for each lane. Every row in each
@@ -76,7 +76,7 @@ def lseq_v2(inSamp, L, M, R):
     # of the input parallel bus that will feed a particular lane. 
     # Only when the "samp" buffer for that lane has reached 64 bits
     # do we say that this is a valid cycle. 
-    samp = [['x']*8 for i in range(L)]
+    samp = [['x']*16 for i in range(L)]
 
     for r in inSamp:
         # First reshape the row such that the number of rows
@@ -89,29 +89,32 @@ def lseq_v2(inSamp, L, M, R):
         
         list_len = int(len(r))
         x = np.reshape(r, (L, int(list_len/L)))
+        #print("nib index: ", lane_nib_idx)
+        #print("x: ", x)
         for l in reversed(range(L)):
             ## Now that the row is split into L subrows, feed each
             ## sub-row into each lane. A valid sample is only
             ## when 64 bits have been accumulated
             x_ind = x[l].size
-            for b in reversed(range(8)):
+            for b in reversed(range(16)):
                 if x[l][0] == 'x': #Case where the sample is not valid, skip the whole processing
                     break
                 if x_ind > 0 :
                     #samp[l].insert(0, x[l][lane_byte_idx[l]-1])
-                    samp[l][lane_byte_idx[l][0]-1] = x[l][x_ind-1]  # 0 idx because lanebyteidx is a list
+                    samp[l][lane_nib_idx[l][0]-1] = x[l][x_ind-1]  # 0 idx because lanenibidx is a list
                                                                     # of lists where is each sub-list of length 1.
                     x_ind = x_ind - 1
-                    lane_byte_idx[l] = lane_byte_idx[l] - 1
-                    lane_bit_counters[l] += 8
+                    lane_nib_idx[l] = lane_nib_idx[l] - 1
+                    lane_bit_counters[l] += 4
                     if lane_bit_counters[l] == 64:
                         break
-                else : 
-                    samp[l][b] = 'x'
-            # The above for loop for bytes cycles through
-            # bytes in the sample. If the lane bit counter
+                #else : 
+                #    samp[l][b] = 'x'
+
+            # The above for loop for nibbles cycles through
+            # nibbles in the sample. If the lane bit counter
             # reaches 64 bits, it will break out, otherwise
-            # it will loop through all the bytes. Now we 
+            # it will loop through all the nibbles. Now we 
             # check if we reached 64 bits. If we did then
             # this is a valid cycle, else just put in 'x'
             
@@ -126,27 +129,25 @@ def lseq_v2(inSamp, L, M, R):
                
                 # Reset the counter
                 lane_bit_counters[l]    = 0
-                lane_byte_idx[l]        = int(8) 
+                lane_nib_idx[l]        = int(16) 
                 # append the sample
 
                 # reset the sample
-                samp[l] = ['x']*8
-
+                samp[l] = ['x']*16
+                #print(x_ind)
                 # buffer the remaining bytes of the
                 # current sample if any remaining
                 #if (b < (x[l].size - 1)):
                 if (x_ind > 0):
                     for bs in reversed(range(0, x_ind)):
-                        samp[l][lane_byte_idx[l]-1] = x[l][x_ind-1]
-                        lane_byte_idx[l] = lane_byte_idx[l] - 1
-                        lane_bit_counters[l] += 8
+                        samp[l][lane_nib_idx[l][0]-1] = x[l][bs]
+                        lane_nib_idx[l] = lane_nib_idx[l] - 1
+                        lane_bit_counters[l] += 4
                     # For remaining bytes just put 'x'
-                    for bs in reversed(range(0, 8-x_ind)):
-                        samp[l].insert(0, 'x')
+                    #for bs in reversed(range(0, 16 - x_ind)):
+                    #    samp[l].insert(0, 'x')
 
 
-            #else: # Didnt collect enough, so this is not a valid cycle.
-            #    lane[l]. append(['x'] * 8)
             
     # Now pretty print the lane outputs
     print(" ***************** MODULE LSEQ OUTPUT *****************")
@@ -160,6 +161,7 @@ def lseq_v2(inSamp, L, M, R):
     print("Clock Rate: 491.52 MHz")
     for l in range(L):
         print("============ LANE ", l, " OUTPUT =============")
+        #print(lane[l])
         print_table(l, R, M, Np, lane[l], 'lseq', "LSEQ OUTPUT")
 
 
@@ -350,7 +352,7 @@ def get_sample_pattern(nSamp, M, R, prec):
     have invalid cycles where the samples are invalid). 
     """
 
-    nOctets         = int(prec/8)
+    nNibbles        = int(prec/4)
     strb_ind        = get_strb_pattern(R)
     P               = get_num_phases(R)
     in_data         = []
@@ -386,13 +388,13 @@ def get_sample_pattern(nSamp, M, R, prec):
         if rem in strb_ind: # this is a valid cycle
             for m in reversed(range(M)):     
                 for p in reversed(range(P)):
-                    for b in reversed(range(nOctets)):
-                        samp = 'M' + str(m) + '_P' + str(p) + '_' + 's' + str(si) + '_' + 'b' + str(b)
+                    for n in reversed(range(nNibbles)):
+                        samp = 'M' + str(m) + '_P' + str(p) + '_' + 's' + str(si) + '_' + 'n' + str(n)
                         literal.append(samp)
             in_data.append(literal)
             si = si + 1
         else:
-            in_data.append(['x'] * M * nOctets * P)
+            in_data.append(['x'] * M * nNibbles * P)
 
     return in_data
 
@@ -459,7 +461,7 @@ def print_table(Lid, R, M, prec, in_data, block, mesg=''):
     block: The function handles tables for various blocks in the design.
     mesg: Any message you would like to print before the table gets printed
     """
-    nOctets = int(prec/8)
+    nNibbles = int(prec/4)
     inTab = PrettyTable()
     fields = []
     
@@ -470,8 +472,8 @@ def print_table(Lid, R, M, prec, in_data, block, mesg=''):
     if(block == 's2w'):
         for m in reversed(range(M)):
             for p in reversed(range(P)):
-                for b in reversed(range(nOctets)):
-                    title = 'M' + str(m) + '_P' + str(p) + '_' + 'B' + str(b)
+                for n in reversed(range(nNibbles)):
+                    title = 'M' + str(m) + '_P' + str(p) + '_' + 'N' + str(n)
                     fields.append(title)
                     
 
@@ -484,8 +486,8 @@ def print_table(Lid, R, M, prec, in_data, block, mesg=''):
         print("Sampling Rate: ", get_sample_rate(R), "MSps")
         print("Clock Rate: 491.52 MHz")
     elif(block == 'lseq'):
-        title = ['63:56', '55:48', '47:40', '39:32', '31:24', '23:16', '15:8', '7:0']
-        for t in range(8):
+        title = ['63:60', '59:56', '55:52', '51:48', '47:44', '43:40', '39:36', '35:32', '31:28', '27:24', '23:20', '19:16', '15:12', '11:8', '7:4', '3:0']
+        for t in range(16):
             fields.append(title[t])
 
     
@@ -504,7 +506,7 @@ if __name__ == "__main__":
 
     # Variables
     
-    Np = 16 
+    Np = 12 
     M = 2
     L = 2
 
@@ -541,32 +543,4 @@ if __name__ == "__main__":
     s2w_out = s2w(nSamp, R, M, Np)
 
     # lseq
-
-    #lseq_v1(s2w_out, L, M, R, Np, 0)
     lseq_v2(s2w_out, L, M, R)
-    
-    l = 0 # lane index
-    lane = [[] for i in range(L)]
-    samp = ''
-    for s in in_samples:
-        for b in s: #every byte in s
-            if lane_bit_counters[l] == 64:
-                lane[l].append(samp)
-                samp = b + ' '  
-                lane_bit_counters[l] = 0
-                if l == L - 1:
-                    l = 0
-                else:
-                    l = l + 1
-            else:
-                samp = samp + b + ' '
-            #lane[l].append(b)
-            lane_bit_counters[l] = lane_bit_counters[l] + 8 
-                
-    #Check the last sample is 64 bit...if yes just add it
-    lane[l].append(samp)
-                
-    #print(lane[0])
-    #print(lane[1])
-
-
