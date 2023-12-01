@@ -26,6 +26,7 @@
 
 import numpy as np
 from prettytable import PrettyTable
+import xlsxwriter as xls
 
 def lseq_v2(inSamp, L, M, R):
     """
@@ -100,7 +101,6 @@ def lseq_v2(inSamp, L, M, R):
                 if x[l][0] == 'x': #Case where the sample is not valid, skip the whole processing
                     break
                 if x_ind > 0 :
-                    #samp[l].insert(0, x[l][lane_byte_idx[l]-1])
                     samp[l][lane_nib_idx[l][0]-1] = x[l][x_ind-1]  # 0 idx because lanenibidx is a list
                                                                     # of lists where is each sub-list of length 1.
                     x_ind = x_ind - 1
@@ -108,8 +108,6 @@ def lseq_v2(inSamp, L, M, R):
                     lane_bit_counters[l] += 4
                     if lane_bit_counters[l] == 64:
                         break
-                #else : 
-                #    samp[l][b] = 'x'
 
             # The above for loop for nibbles cycles through
             # nibbles in the sample. If the lane bit counter
@@ -137,9 +135,11 @@ def lseq_v2(inSamp, L, M, R):
                 #print(x_ind)
                 # buffer the remaining bytes of the
                 # current sample if any remaining
-                #if (b < (x[l].size - 1)):
                 if (x_ind > 0):
                     for bs in reversed(range(0, x_ind)):
+                        if x[l][0] == 'x': #Case where the sample is not valid, skip the whole processing
+                            break
+                        
                         samp[l][lane_nib_idx[l][0]-1] = x[l][bs]
                         lane_nib_idx[l] = lane_nib_idx[l] - 1
                         lane_bit_counters[l] += 4
@@ -163,110 +163,13 @@ def lseq_v2(inSamp, L, M, R):
         print("============ LANE ", l, " OUTPUT =============")
         #print(lane[l])
         print_table(l, R, M, Np, lane[l], 'lseq', "LSEQ OUTPUT")
+    
+    return lane
 
 
 # @@@@@@@@@@@@@@@ END OF LSEQ_V2 Function
 
 
-def lseq_v1(inSamp, L, M, R, Np, link_mode):
-    """
-    This function is responsible for mapping input samples coming out of the
-    s2w block to lanes. 
-
-    Parameters:
-    -----------
-        inSamp: This is a list (super) of lists (sub). Every row in the super list
-                can be thought of as a parallel bus word coming through. Every item
-                in the sub-list is a byte belonging to the converters specified by 
-                M. 
-        L:      Number of programmed lanes.
-        M:      Number of programmed converters.
-        R:      Sampling rate.
-                    1: 122.88 MHz
-                    2: 245.76 MHz
-                    3. 368.64 MHz
-                    4: 491.52 MHz
-                    6: 737.28 MHz
-                    8: 983.04 MHz
-        Np:     Np bits: 16, 24, 32, 48
-        link_mode: single (0) or dual (1) mode.
-    """
-    # Define Lane Bit Counters 
-    lane_bit_counters = np.zeros((L, 1), dtype=np.uint32)
-    # create an empty list for each lane. Every row in each
-    # lane will be a 64 bit word.
-    lane = [[] for i in range(L)]
-    samp = [[] for i in range(L)]
-    match L:
-        case 2: # 2 Lanes
-            match M:
-                case 2: # 2 Converters
-                    match R:
-                        case 4: # 491.52 MSps.
-                            if (link_mode == 0): #single link case
-                                # M = 2, L = 2, R = 491.52
-                                # In this case each converter will map
-                                # to a lane. So for every row, we will 
-                                # reshape it according to the number of lanes
-                                for r in inSamp:
-                                    list_len = int(len(r))
-                                    x = np.reshape(r, (L, int(list_len/L)))
-                                    # Now that the row is split into two, feed each
-                                    # sub-row into each lane. A valid sample is only
-                                    # when 64 bits have been accumulated
-                                    for l in range(L):
-                                        for b in range(x[l].size):
-                                            samp[l].append(x[l][b])
-                                            lane_bit_counters[l] += 8
-                                            if lane_bit_counters[l] == 64:
-                                                break
-
-                                        # The above for loop for bytes cycles through
-                                        # bytes in the sample. If the lane bit counter
-                                        # reaches 64 bits, it will break out, otherwise
-                                        # it will loop through all the bytes. Now we 
-                                        # check if we reached 64 bits. If we did then
-                                        # this is a valid cycle, else just put in 'x'
-                                        
-                                        if lane_bit_counters[l] == 64:
-                                            
-                                            # Reset the counter
-                                            lane_bit_counters[l] = 0
-                                            
-                                            # append the sample
-                                            lane[l].append(samp[l])
-
-                                            # reset the sample
-                                            samp[l] = []
-
-                                            # buffer the remaining bytes of the
-                                            # current sample if any remaining
-                                            if (b < (x[l].size - 1)):
-                                                for bs in range(b+1, x[l].size):
-                                                    samp[l].append(x[l][bs])
-                                                    lane_bit_counters[l] += 8
-
-                                        else: # Didnt collect enough, so this is not a valid
-                                              # cycle.
-                                            lane[l]. append(['x'] * 8)
-
-
-    # Now pretty print the lane outputs
-    print(" ***************** MODULE LSEQ OUTPUT *****************")
-    print('')
-    print("============= Parameters")
-    print("Number of Converters: ", M)
-    print("Number of Phases: ", get_num_phases(R))
-    print("Number of Lanes: ", L)
-    print("Precision (bits): ", 64)
-    print("Sampling Rate: ", get_sample_rate(R), "MSps")
-    print("Clock Rate: 491.52 MHz")
-    for l in range(L):
-        print("============ LANE ", l, " OUTPUT =============")
-        print_table(l, R, M, Np, lane[l], 'lseq')
-
-
-                                 
 def s2w(nSamp, R, M, prec):
     """ 
     S2W block is the block that converts raw samples to converter words. 
@@ -304,7 +207,7 @@ def s2w(nSamp, R, M, prec):
 
     # Print the input waveform in a beautiful way.
     # Dont need lanes for this block so set to 0.
-    print_table(0, R, M, prec, in_data, 's2w', "=== Raw Samples to Converter Samples =====")
+    print_table(0, R, M, prec, in_data, 's2w', "===== Raw Samples to Converter Samples =====")
 
     return in_data
 
@@ -498,6 +401,122 @@ def print_table(Lid, R, M, prec, in_data, block, mesg=''):
     
     # Print the table
     print(inTab)
+
+def xls_sheet_conv_if(wb, M, prec, in_data, xls_start_row, xls_start_col, ws_name):
+    '''
+    This function will write the converter interface nibble literals into 
+    the worksheet. Note that in_data is given as such that the rows are
+    clock cycles and the columns are converter samples. Its also set in
+    big endian notation. in_data is a list of lists.  
+    '''
+    
+    ws = wb.add_worksheet(ws_name)
+    
+    cell_format = wb.add_format()
+    #cell_format.set_bold(True)
+    #cell_format.set_bg_color('yellow')
+    cell_format.set_center_across()
+    
+    merge_format = wb.add_format({
+    'bold':     True,
+    'border':   6,
+    'align':    'center',
+    'valign':   'vcenter',
+    'fg_color': '#D7E4BC',
+    })
+    
+    # First figure out the number of headers depending on M
+    header = []
+    for m in range(M):
+        text = "M" + str(m)
+        header.append(text)
+    
+    # Number of nibbles will dictate how many cells need to be merged
+    # for the header
+    num_nibbles = int(prec/4);
+    
+    fr = int(xls_start_row);
+    fc = int(xls_start_col);
+    lc = int(xls_start_col);
+    
+    for h in range(len(header)):
+        lr = fr + num_nibbles - 1;
+        ws.merge_range(fr, fc, lr, lc, header[h], merge_format)
+        fr = lr + 1
+    
+    for r in in_data:
+        fr = xls_start_row;
+        fc = fc + 1
+        for s in reversed(r):
+            ws.write(fr, fc, s, cell_format)
+            fr = fr+1
+    
+
+def xls_sheet_lane_if(wb, L, prec, in_data, xls_start_row, xls_start_col, ws_name):
+    '''
+    This function will write the lane interface nibble literals into 
+    the worksheet. in_data is a list of lists. The sublist is made up of
+    elements that correspond to a clock cycle. 
+    '''
+    
+    ws = wb.add_worksheet(ws_name)
+    
+    cell_format = wb.add_format()
+    #cell_format.set_bold(True)
+    #cell_format.set_bg_color('yellow')
+    cell_format.set_center_across()
+    
+    merge_format = wb.add_format({
+    'bold':     True,
+    'border':   6,
+    'align':    'center',
+    'valign':   'vcenter',
+    'fg_color': '#D7E4BC',
+    })
+    
+    # First figure out the number of headers depending on M
+    header = []
+    for l in range(L):
+        text = "L" + str(l)
+        header.append(text)
+    
+    # Number of nibbles will dictate how many cells need to be merged
+    # for the header
+    num_nibbles = int(prec/4);
+    
+    fr = int(xls_start_row);
+    fc = int(xls_start_col);
+    lc = int(xls_start_col);
+    
+    for h in range(len(header)):
+        lr = fr + num_nibbles - 1;
+        ws.merge_range(fr, fc, lr, lc, header[h], merge_format)
+        fr = lr + 1
+    
+    ln_idx = 0
+    for l in in_data:
+        row_start_idx = xls_start_row + ln_idx * num_nibbles
+        fc = xls_start_col
+        for s in l: 
+            fc = fc + 1
+            fr = row_start_idx
+            for n in reversed(s):
+                ws.write(fr, fc, n, cell_format)
+                fr = fr + 1
+                #print(n)a
+        
+        # Increment column only if last last lane has been processed
+        ln_idx += 1
+        
+    
+    
+   # for r in in_data:
+   #     fr = xls_start_row;
+   #     fc = fc + 1
+   #     for s in reversed(r):
+   #         ws.write(fr, fc, s, cell_format)
+   #         fr = fr+1
+            
 ###############################
 #       MAIN FUNCTION
 ###############################
@@ -507,7 +526,7 @@ if __name__ == "__main__":
     # Variables
     
     Np = 12 
-    M = 2
+    M = 16
     L = 2
 
     '''
@@ -519,7 +538,7 @@ if __name__ == "__main__":
         6: 737.28 MHz
         8: 983.04 MHz
     '''
-    R = 6 
+    R = 2 
     
     '''
     Number of octets
@@ -536,11 +555,23 @@ if __name__ == "__main__":
     # Define Lane Bit Counters 
     lane_bit_counters = np.zeros((L, 1), dtype=np.uint32)
     
+    # XLSX workbook
+    book_name = "M_" + str(M) + "_L_" + str(L) + "_Np_" + str(Np) + "_R_" + str(int(get_sample_rate(R))) + ".xlsx"
+    xls_row_idx = 5
+    xls_col_idx = 5
+    wb = xls.Workbook(book_name)
+    
+    
     # Prepare input to block
     in_samples = s2w(nSamp, R, M, 16)
-
+    xls_sheet_conv_if(wb, M, 16, in_samples, 5, 5, "Converter Interface")
+    
     # Output of s2w_block
     s2w_out = s2w(nSamp, R, M, Np)
-
+    xls_sheet_conv_if(wb, M, Np, s2w_out, 5, 5, "Nibble Group Output")
+    
     # lseq
-    lseq_v2(s2w_out, L, M, R)
+    lane_out = lseq_v2(s2w_out, L, M, R)
+    xls_sheet_lane_if(wb, L, 64, lane_out, 5, 5, "Lane Output")
+     
+    wb.close()

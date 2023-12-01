@@ -9,10 +9,15 @@ class JesdTl {
         uint32_t L; // Number of Lanes
         uint32_t Np; // JESD TL Precision
         uint32_t R; // Rate of the input
+        uint32_t S; // Oversampling
+        uint32_t OS; // Sample Repeat
 
         int num_samples; // This is the number of samples that this block will process
                          // Allows us to define internal data structures of the right size.
                          // In real hardware this would just be a streaming block.
+
+        uint32_t** cw_data; // This is a 2D array that maps raw samples from converters to converterwords. - Not used
+        uint16_t** cw_valid; // Corresponding valids. - Not used
         
         uint64_t** ng_data;     // This is a 2D array that will store converter raw samples to word mapping.
                                 // We define this as 64 bit so that we can accomodate max 48 bit support.
@@ -177,6 +182,31 @@ class JesdTl {
         }
 
         // Logic Methods
+        /*
+            Function: map_s_2_cw (NOT SUPPORTED)
+            Description: The purpose of this funtion is to add control bits raw_conv_samples. This is an
+            incomplete function at this time. We will not be supporting control bits in IP. 
+         */
+        void map_s_2_cw ( uint16_t** raw_conv_data, uint16_t** valid, uint16_t** ctrl_data, int cs, int cf) {
+            if ( cs > 16 ) {
+                throw std::invalid_argument("CS should be less than or equal to 16 bits");
+            }
+
+            // Make sure the ctrl_data has only cs number of bits set. We do this by creating a mask
+            // with cs number of bits in the lsb set to 1. 
+            uint16_t mask = 0;
+            for ( int i = 0; i < cs; i ++ ) {
+                mask = (mask << 1) | 0x0001;
+            }
+
+            for ( int r = 0 ; r < getM() ; r ++ ) {
+                for ( int c = 0 ; c < num_samples ; c ++ ) {
+                    ctrl_data[r][c]      = 0 & mask;
+                }
+            }
+
+
+        }
 
         /*  
             Function: map_cw_2_ng
@@ -257,8 +287,8 @@ class JesdTl {
             cout << dec << "Blk Size: " << blk_size << ", Blk Bit Width: " << blk_bit_width << endl;
 
             // Lets define lane input sample whose size is dependent on M x P split accross L. 
-            // The maxium we know will ever be 256 bits. 
-            uint64_t lane_input_sample[L][4];
+            // The maxium we know will ever be 384 bits. 
+            uint64_t lane_input_sample[L][8];
             // Lane input bit counter. Bit counter that keeps track of 
             // how many bits have been stored in.
             int in_bit_cntr = 0;
@@ -266,21 +296,16 @@ class JesdTl {
             // to get the data.
             int samp_col = 0;
 
-            // These buffers store the 64 bit word that needs to be transmitted.
-            uint64_t lane_buf_pg0[L];
-            uint64_t lane_buf_pg1[L];
             // Keeps track of accumulated number of bits for a lane.
             uint16_t lane_bit_cntr[L];
             bool page[L];
 
             // Initialize the buffers
             for (int l = 0 ; l < L ; l ++) {
-                lane_buf_pg0[l] = 0;
-                lane_buf_pg1[l] = 0;
                 lane_bit_cntr[l] = 0;
                 page[l] = false;
 
-                for ( int s = 0; s < 4; s ++ ) {
+                for ( int s = 0; s < 8; s ++ ) {
                     lane_input_sample[l][s] = 0;
                 } 
             }
@@ -292,7 +317,11 @@ class JesdTl {
                     // Iterate through the rows (converters) in each block and collect the
                     // the data that belongs to that lane in lane_input_sample. Note in hw
                     // this will be a case statement on blk_bit_width, where we assign the right
-                    // samples from converters to a lane.
+                    // samples from converters to a lane. The coagulation is done by fitting
+                    // the samples from the nibblegroups into the 64 bit array. This is special
+                    // to the software here and wont be needed in hw. We do this on when there
+                    // is a valid sample. For every converter nibble group we increment the lane
+                    // bit counter by Np.
                     for ( int r = l * blk_size; r < (l + 1)*blk_size ; r ++ ) {
                         
                         if ( ng_valid[r][s] == 1) {
@@ -311,11 +340,16 @@ class JesdTl {
                     }
 
                     // Debug
-                    cout << dec << "Sample: " << s << " Lane " << l << ": " << hex << setw(16) << lane_input_sample[l][3] << hex << setw(16) << lane_input_sample[l][2] << 
-                    hex << setw(16) << lane_input_sample[l][1] << hex << setw(16) << lane_input_sample[l][0] << " ---> " << dec << lane_bit_cntr[l] << endl;
+                    cout << dec << "Sample: " << s << " Lane " << l << ": " << 
+                    hex << setw(16) << lane_input_sample[l][5] << "_" << hex << setw(16) << lane_input_sample[l][4] << "_" << 
+                    hex << setw(16) << lane_input_sample[l][3] << "_" << hex << setw(16) << lane_input_sample[l][2] << "_" <<  
+                    hex << setw(16) << lane_input_sample[l][1] << "_" << hex << setw(16) << lane_input_sample[l][0] << 
+                    " ---> " << dec << lane_bit_cntr[l] << endl;
                     
+                    // If there are more than 64 bits to send, then we sould send the data. In hw this will involve sending
+                    // out the lowest 64 bits and then right shifting. We have modeled this operation in the arr_pop function. 
                     if (lane_bit_cntr[l] >= 64) {
-                        lane_out[l][s] = arr_pop(lane_input_sample[l], 4);
+                        lane_out[l][s] = arr_pop(lane_input_sample[l], 6);
                         lane_valid[l][s] = 1;
                         lane_bit_cntr[l] -= 64;
                     } else {
@@ -659,13 +693,13 @@ void gen_conv_data(uint16_t** inp_data, uint16_t** valid, int row, int col, int 
 
 int main(int argc, char *argv[]) {
     // Number of Lanes
-    uint32_t L = 2;
+    uint32_t L = 16;
     // Number of real converters
-    uint32_t M = 16;
+    uint32_t M = 8;
     // Precision
-    uint32_t Np = 24;
+    uint32_t Np = 16;
     // Rate
-    uint32_t R = 1;
+    uint32_t R = 8;
     // Number of samples
     uint32_t num_samp = 12;
 
