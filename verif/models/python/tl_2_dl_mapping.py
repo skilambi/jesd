@@ -476,7 +476,7 @@ def xls_sheet_lane_if(wb, L, prec, in_data, xls_start_row, xls_start_col, ws_nam
     
     # First figure out the number of headers depending on M
     header = []
-    for l in range(L):
+    for l in reversed(range(L)):
         text = "L" + str(l)
         header.append(text)
     
@@ -503,19 +503,12 @@ def xls_sheet_lane_if(wb, L, prec, in_data, xls_start_row, xls_start_col, ws_nam
             for n in reversed(s):
                 ws.write(fr, fc, n, cell_format)
                 fr = fr + 1
-                #print(n)a
         
         # Increment column only if last last lane has been processed
         ln_idx += 1
         
     
     
-   # for r in in_data:
-   #     fr = xls_start_row;
-   #     fc = fc + 1
-   #     for s in reversed(r):
-   #         ws.write(fr, fc, s, cell_format)
-   #         fr = fr+1
             
 ###############################
 #       MAIN FUNCTION
@@ -525,9 +518,9 @@ if __name__ == "__main__":
 
     # Variables
     
-    Np = 12 
-    M = 16
-    L = 2
+    Np = 16 
+    M = 8 
+    L = 16
 
     '''
     R:  Sampling rate.
@@ -538,7 +531,7 @@ if __name__ == "__main__":
         6: 737.28 MHz
         8: 983.04 MHz
     '''
-    R = 2 
+    R = 8 
     
     '''
     Number of octets
