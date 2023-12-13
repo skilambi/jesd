@@ -159,7 +159,7 @@ if __name__ == "__main__":
     
     # Number of SERDES lanes (this should be a list of possible Lane configurations)
     #L = [2, 4, 8, 16]
-    L = [1, 2, 4, 8, 16]
+    L = [1, 2, 4, 8]
     
     # Fixed bit width 
     N_prime = [12, 16, 24, 32, 48] #bits

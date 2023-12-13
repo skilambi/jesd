@@ -207,7 +207,7 @@ def s2w(nSamp, R, M, prec):
 
     # Print the input waveform in a beautiful way.
     # Dont need lanes for this block so set to 0.
-    print_table(0, R, M, prec, in_data, 's2w', "===== Raw Samples to Converter Samples =====")
+    #print_table(0, R, M, prec, in_data, 's2w', "===== Raw Samples to Converter Samples =====")
 
     return in_data
 
@@ -219,32 +219,45 @@ def get_strb_pattern(R):
     imagine 4 cycle counter at 491.52 then the following returned index indicate
     a particular pattern.
 
-    index = [0] means [1 0 0 0] strobe
-    index = [0 2] means [1 0 1 0] strobe
-    index = [0 1 2] means [ 1 1 1 0 ] strobe
-    index = [0 1 2 3] means [1 1 1 1] strobe
+    index = [0] means [1 0 0 0 0 0 0 0] strobe
+    index = [0 4] means [1 0 0 0 1 0 0 0] strobe
+    index = [0 2 4 6] means [ 1 0 1 0 1 0 1 0] strobe
+    index = [0 1 2 3 4 5 6 7] means [1 1 1 1 1 1 1 1] strobe
 
-    Single Phase:
-    122.88 : 1 0 0 0 1 0 0 0
-    245.76 : 1 0 1 0 1 0 1 0
-    368.64 : 1 1 1 0 1 1 1 0
-    491.52 : 1 1 1 1 1 1 1 1
+    122.88 : 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0
+             1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0
+    245.76 : 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0
+             1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0
+    368.64 : 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+             1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0
+    491.52 : 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+             1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+    737.28 : 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+             1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+    983.04 : 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+             1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
     
-    Dual Phase:
-    737.28 : 1 1 1 0 1 1 1 0
-    983.04 : 1 1 1 1 1 1 1 1
     """
     match R:
         case 1: # 122.88 MSPs
-            strb = [0]
+            strb_r0 = [0]
+            strb_r1 = [0]
         case 2: # 245.76 MSPs
-            strb = [0, 2]
-        case 3 | 6: # 368.64 and 737.28 MSPs
-            strb = [0, 1, 2]
-        case 4 | 8: # 491.52 MSPs and 983.04 MSPs
-            strb = [0, 1, 2, 3]
-
-    return strb
+            strb_r0 = [0, 4]
+            strb_r1 = [0, 4]
+        case 3: # 368.64
+            strb_r0 = [0, 2, 4, 6]
+            strb_r1 = [0, 4]
+        case 4: # 491.52
+            strb_r0 = [0, 2, 4, 6]
+            strb_r1 = [0, 2, 4, 6]
+        case 6: # 737.28 
+            strb_r0 = [0, 1, 2, 3, 4, 5, 6, 7]
+            strb_r1 = [0, 2, 4, 6]
+        case 8: # 983.04
+            strb_r0 = [0, 1, 2, 3, 4, 5, 6, 7]
+            strb_r1 = [0, 1, 2, 3, 4, 5, 6, 7]
+    return (strb_r0, strb_r1)
 
 
 
@@ -256,7 +269,7 @@ def get_sample_pattern(nSamp, M, R, prec):
     """
 
     nNibbles        = int(prec/4)
-    strb_ind        = get_strb_pattern(R)
+    strb_r0, strb_r1        = get_strb_pattern(R)
     P               = get_num_phases(R)
     in_data         = []
     si              = 0 # true Sample Index
@@ -284,21 +297,32 @@ def get_sample_pattern(nSamp, M, R, prec):
 
     
     for n in range(osSamp):
-        rem     = n % 4
+        rem     = n % 8
         samp    = '' # byte sample for every converter
         literal = [] # Entire row in the table
 
-        if rem in strb_ind: # this is a valid cycle
-            for m in reversed(range(M)):     
-                for p in reversed(range(P)):
-                    for n in reversed(range(nNibbles)):
-                        samp = 'M' + str(m) + '_P' + str(p) + '_' + 's' + str(si) + '_' + 'n' + str(n)
-                        literal.append(samp)
-            in_data.append(literal)
-            si = si + 1
-        else:
-            in_data.append(['x'] * M * nNibbles * P)
+        for m in reversed(range(M)):     
+            for n in reversed(range(nNibbles)):
+                if rem in strb_r0: # this is a valid cycle
+                    samp = 'M' + str(m) + '_R0' + '_' + 's' + str(si) + '_' + 'n' + str(n)
+                    literal.append(samp)
+                else:
+                    literal.append('x')
 
+        # Second Rail
+        for m in reversed(range(M)):     
+            for n in reversed(range(nNibbles)):
+                if rem in strb_r1: # this is a valid cycle
+                    samp = 'M' + str(m) + '_R1' + '_' + 's' + str(si) + '_' + 'n' + str(n)
+                    literal.append(samp)
+                else:
+                    literal.append('x')
+
+        in_data.append(literal)
+        
+        if rem in strb_r0 or rem in strb_r1:
+            si = si + 1    
+    
     return in_data
 
 
@@ -315,7 +339,7 @@ def get_num_phases(R):
           6: 737.28 MHz
           8: 983.04 MHz
     '''
-
+    return 2
     if R in [1, 2, 3, 4]:
         P = 1
     else:
@@ -370,7 +394,7 @@ def print_table(Lid, R, M, prec, in_data, block, mesg=''):
     
     # Get the number of phases based in rate
     P = get_num_phases(R)
-
+    
     # For the header of the table.
     if(block == 's2w'):
         for m in reversed(range(M)):
@@ -427,9 +451,10 @@ def xls_sheet_conv_if(wb, M, prec, in_data, xls_start_row, xls_start_col, ws_nam
     
     # First figure out the number of headers depending on M
     header = []
-    for m in range(M):
-        text = "M" + str(m)
-        header.append(text)
+    for p in reversed(range(2)):
+        for m in range(M):
+            text = "M" + str(m) + "_P" + str(p)
+            header.append(text)
     
     # Number of nibbles will dictate how many cells need to be merged
     # for the header
@@ -531,7 +556,7 @@ if __name__ == "__main__":
         6: 737.28 MHz
         8: 983.04 MHz
     '''
-    R = 8 
+    R = 1 
     
     '''
     Number of octets
